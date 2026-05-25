@@ -139,7 +139,7 @@ export async function deleteSource(id: string): Promise<void> {
 const JOBS = 'rh_jobs';
 
 export type JobKind = 'mannequin' | 'output';
-export type JobStatus = 'pending' | 'running' | 'done' | 'error';
+export type JobStatus = 'pending' | 'running' | 'finalizing' | 'done' | 'error';
 export type JobPayload = { workflowId: string; nodeInfoList: { nodeId: string; fieldName: string; fieldValue: string | number }[] };
 
 export type Job = {
@@ -209,15 +209,33 @@ export async function listPendingJobs(limit: number): Promise<Job[]> {
   return (data ?? []) as Job[];
 }
 
-// Active = pending or running (drives the shot's 'generating' state and UI polling).
+// Active = pending, running, or finalizing (drives the shot's 'generating' state
+// and UI polling). 'finalizing' is included so the shot stays generating while a
+// claimed job's result is still downloading/uploading.
 export async function countRunningJobs(shotId: string): Promise<number> {
   const { count, error } = await getSupabase()
     .from(JOBS)
     .select('id', { count: 'exact', head: true })
     .eq('shot_id', shotId)
-    .in('status', ['pending', 'running']);
+    .in('status', ['pending', 'running', 'finalizing']);
   if (error) throw new Error(error.message);
   return count ?? 0;
+}
+
+// Atomically claim a finished job for finalization, flipping running -> finalizing.
+// Postgres serializes the conditional update on the row, so of two concurrent
+// reconcile/webhook passes only one matches status='running' and gets a row back;
+// the loser sees 0 rows and must not finalize. This is what prevents the duplicate
+// image inserts the race used to produce.
+export async function claimJobForFinalize(id: string): Promise<boolean> {
+  const { data, error } = await getSupabase()
+    .from(JOBS)
+    .update({ status: 'finalizing', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('status', 'running')
+    .select('id');
+  if (error) throw new Error(error.message);
+  return (data?.length ?? 0) > 0;
 }
 
 export async function markJobRunning(id: string, taskId: string): Promise<void> {
@@ -397,6 +415,25 @@ export async function insertImage(img: NewImage): Promise<ShotImage> {
   const { data, error } = await getSupabase().from(IMAGES).insert(img).select('*').single();
   if (error) throw new Error(error.message);
   return data as ShotImage;
+}
+
+// Generated/mannequin images created by a finalize race share the same task_id.
+// Returns the ids of the redundant copies (every row beyond the oldest per task_id)
+// so a one-off dedup can remove them. Rows without a task_id are never touched.
+export async function findDuplicateImageIds(): Promise<string[]> {
+  const { data, error } = await getSupabase()
+    .from(IMAGES)
+    .select('id, task_id')
+    .not('task_id', 'is', null)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  const seen = new Set<string>();
+  const dupes: string[] = [];
+  for (const row of (data ?? []) as { id: string; task_id: string }[]) {
+    if (seen.has(row.task_id)) dupes.push(row.id);
+    else seen.add(row.task_id);
+  }
+  return dupes;
 }
 
 export async function deleteImage(id: string): Promise<{ shot_id: string }> {

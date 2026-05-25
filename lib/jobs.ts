@@ -7,6 +7,7 @@ import {
   insertImage,
   updateJob,
   markJobRunning,
+  claimJobForFinalize,
   recomputeStatus,
   listRunningJobsForShot,
   listPendingJobs,
@@ -61,37 +62,51 @@ export function webhookUrlForTasks(): string | undefined {
 }
 
 // Download the finished result and persist it as the job's image, then close the job.
-export async function finalizeJob(job: Job, fileUrl: string): Promise<void> {
-  const res = await fetch(fileUrl);
-  if (!res.ok) throw new Error(`fetch result ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  const contentType = res.headers.get('content-type') || 'image/png';
-  const ext = extFromContentType(contentType);
+// Returns true if this caller finalized the job, false if another concurrent pass
+// (poll or webhook) already claimed it — in which case we do nothing, so the result
+// is never inserted twice. On its own failure it marks the job 'error' and rethrows.
+export async function finalizeJob(job: Job, fileUrl: string): Promise<boolean> {
+  // Claim the job first; lose the race -> bail before downloading or inserting.
+  if (!(await claimJobForFinalize(job.id))) return false;
 
-  if (job.kind === 'mannequin') {
-    await clearRole(job.shot_id, 'mannequin'); // regeneration replaces the old one
-    const key = shotImageKey(job.shot_id, 'mannequin', ext);
-    const { url } = await uploadBuffer(key, buffer, contentType);
-    await insertImage({ shot_id: job.shot_id, role: 'mannequin', r2_key: key, url, content_type: contentType, task_id: job.task_id });
-  } else {
-    const key = shotImageKey(job.shot_id, 'generated', ext);
-    const { url } = await uploadBuffer(key, buffer, contentType);
-    await insertImage({
-      shot_id: job.shot_id,
-      role: 'generated',
-      slot: job.slot,
-      variation_index: job.variation_index,
-      source_image_id: job.source_image_id,
-      r2_key: key,
-      url,
-      content_type: contentType,
-      task_id: job.task_id,
-    });
+  try {
+    const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error(`fetch result ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') || 'image/png';
+    const ext = extFromContentType(contentType);
+
+    if (job.kind === 'mannequin') {
+      await clearRole(job.shot_id, 'mannequin'); // regeneration replaces the old one
+      const key = shotImageKey(job.shot_id, 'mannequin', ext);
+      const { url } = await uploadBuffer(key, buffer, contentType);
+      await insertImage({ shot_id: job.shot_id, role: 'mannequin', r2_key: key, url, content_type: contentType, task_id: job.task_id });
+    } else {
+      const key = shotImageKey(job.shot_id, 'generated', ext);
+      const { url } = await uploadBuffer(key, buffer, contentType);
+      await insertImage({
+        shot_id: job.shot_id,
+        role: 'generated',
+        slot: job.slot,
+        variation_index: job.variation_index,
+        source_image_id: job.source_image_id,
+        r2_key: key,
+        url,
+        content_type: contentType,
+        task_id: job.task_id,
+      });
+    }
+
+    await updateJob(job.id, { status: 'done', error: null });
+  } catch (e) {
+    // Don't leave the job stuck in 'finalizing' if the download/upload fails.
+    await updateJob(job.id, { status: 'error', error: e instanceof Error ? e.message : String(e) });
+    throw e;
   }
 
-  await updateJob(job.id, { status: 'done', error: null });
   await recomputeStatus(job.shot_id);
   await dispatchPending(); // a slot just freed — submit the next queued job
+  return true;
 }
 
 // Poll each running job once; finalize the done ones, flag failures.
@@ -111,11 +126,10 @@ export async function reconcileShot(shotId: string): Promise<{ finalized: number
     }
     if (outcome.state === 'done') {
       try {
-        await finalizeJob(job, outcome.fileUrl);
-        finalized++;
-      } catch (e) {
-        await updateJob(job.id, { status: 'error', error: e instanceof Error ? e.message : String(e) });
-        failed++;
+        if (await finalizeJob(job, outcome.fileUrl)) finalized++;
+        // false => another pass already claimed it; nothing to count.
+      } catch {
+        failed++; // finalizeJob already marked the job 'error'
       }
     } else if (outcome.state === 'error') {
       await updateJob(job.id, { status: 'error', error: outcome.message });
