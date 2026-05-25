@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+build/
+
+# env files (NEVER commit real secrets; keep only .env.example)
+.env
+.env*
+!.env.example
+
+# logs
+*.log
+
+# misc
+.DS_Store
+scripts/deleted-manifest.*
+*.tsbuildinfo
+next-env.d.ts
+.vercel
