@@ -1,5 +1,20 @@
 import type { ShotStatus } from '@/lib/db';
 
+// Pipeline order, used by the overview status filter.
+export const STATUS_ORDER: ShotStatus[] = [
+  'base_uploaded',
+  'needs_mannequin',
+  'needs_model_sources',
+  'ready_to_generate',
+  'generating',
+  'ready_for_review',
+  'completed',
+];
+
+export function statusLabel(status: ShotStatus): string {
+  return MAP[status].label;
+}
+
 const MAP: Record<ShotStatus, { label: string; className: string }> = {
   base_uploaded: { label: 'Base uploaded', className: 'bg-neutral-800 text-neutral-300' },
   needs_mannequin: { label: 'Needs mannequin', className: 'bg-amber-950 text-amber-300 border border-amber-900' },

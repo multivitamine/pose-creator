@@ -9,6 +9,8 @@ import { ModelSourceSlot } from './ModelSourceSlot';
 import { GenerateControls } from './GenerateControls';
 import { ResultsGallery } from './ResultsGallery';
 import { ImportUploader } from './ImportUploader';
+import { ComparisonSlider } from './ComparisonSlider';
+import { orderForCompare } from '@/lib/compare';
 
 export function ShotDetailClient({
   initial,
@@ -23,6 +25,7 @@ export function ShotDetailClient({
   const [sources, setSources] = useState<Source[]>([]);
   const [mannBusy, setMannBusy] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [comparing, setComparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -103,10 +106,22 @@ export function ShotDetailClient({
           <h1 className="text-2xl font-semibold tracking-tight">{shotLabel(shot)}</h1>
           <StatusBadge status={shot.status} />
         </div>
-        <button onClick={deleteShot} className="text-xs text-neutral-500 hover:text-red-400">
-          delete shot
-        </button>
+        <div className="flex items-center gap-4">
+          {shot.images.length >= 2 && (
+            <button
+              onClick={() => setComparing(true)}
+              className="rounded-md bg-neutral-800 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-700"
+            >
+              Compare
+            </button>
+          )}
+          <button onClick={deleteShot} className="text-xs text-neutral-500 hover:text-red-400">
+            delete shot
+          </button>
+        </div>
       </div>
+
+      {comparing && <ComparisonSlider images={orderForCompare(shot.images)} onClose={() => setComparing(false)} />}
 
       {isRunning && (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-blue-900 bg-blue-950/30 p-3 text-sm text-blue-200">

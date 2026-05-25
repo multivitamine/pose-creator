@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getShotImages, getSettings, createJob, nextVariationIndex, recomputeStatus, type ModelSlot } from '@/lib/db';
-import { createTask, type NodeInfo } from '@/lib/runninghub';
+import { type NodeInfo } from '@/lib/runninghub';
 import { r2ToRunningHub } from '@/lib/generate';
-import { webhookUrlForTasks } from '@/lib/jobs';
+import { dispatchPending } from '@/lib/jobs';
 import { DOUBLE_DEFAULTS } from '@/lib/defaults';
 
 export const runtime = 'nodejs';
@@ -36,7 +36,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       r2ToRunningHub(mannequin.url, mannequin.content_type, 'mannequin.png'),
     ]);
 
-    const webhookUrl = webhookUrlForTasks();
     const jobs = [];
     for (let i = 0; i < count; i++) {
       const variationIndex = await nextVariationIndex(shotId, slot);
@@ -47,10 +46,19 @@ export async function POST(req: NextRequest, { params }: Params) {
         { nodeId: DOUBLE_DEFAULTS.aspectNodeId, fieldName: DOUBLE_DEFAULTS.aspectFieldName, fieldValue: settings.default_aspect },
         { nodeId: DOUBLE_DEFAULTS.resolutionNodeId, fieldName: DOUBLE_DEFAULTS.resolutionFieldName, fieldValue: settings.default_resolution.toLowerCase() },
       ];
-      const taskId = await createTask(DOUBLE_DEFAULTS.workflowId, nodeInfoList, webhookUrl);
-      jobs.push(await createJob({ shot_id: shotId, kind: 'output', slot, variation_index: variationIndex, source_image_id: source.id, task_id: taskId }));
+      jobs.push(
+        await createJob({
+          shot_id: shotId,
+          kind: 'output',
+          slot,
+          variation_index: variationIndex,
+          source_image_id: source.id,
+          payload: { workflowId: DOUBLE_DEFAULTS.workflowId, nodeInfoList },
+        }),
+      );
     }
 
+    await dispatchPending();
     const status = await recomputeStatus(shotId);
     return NextResponse.json({ jobs, status }, { status: 202 });
   } catch (err: unknown) {

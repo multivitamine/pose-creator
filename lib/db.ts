@@ -139,7 +139,8 @@ export async function deleteSource(id: string): Promise<void> {
 const JOBS = 'rh_jobs';
 
 export type JobKind = 'mannequin' | 'output';
-export type JobStatus = 'running' | 'done' | 'error';
+export type JobStatus = 'pending' | 'running' | 'done' | 'error';
+export type JobPayload = { workflowId: string; nodeInfoList: { nodeId: string; fieldName: string; fieldValue: string | number }[] };
 
 export type Job = {
   id: string;
@@ -151,6 +152,7 @@ export type Job = {
   task_id: string | null;
   status: JobStatus;
   error: string | null;
+  payload: JobPayload | null;
   created_at: string;
   updated_at: string;
 };
@@ -158,14 +160,20 @@ export type Job = {
 export type NewJob = {
   shot_id: string;
   kind: JobKind;
-  task_id: string;
+  payload: JobPayload;
+  status?: JobStatus;
+  task_id?: string | null;
   slot?: ModelSlot | null;
   variation_index?: number | null;
   source_image_id?: string | null;
 };
 
 export async function createJob(job: NewJob): Promise<Job> {
-  const { data, error } = await getSupabase().from(JOBS).insert(job).select('*').single();
+  const { data, error } = await getSupabase()
+    .from(JOBS)
+    .insert({ status: 'pending', ...job })
+    .select('*')
+    .single();
   if (error) throw new Error(error.message);
   return data as Job;
 }
@@ -176,6 +184,7 @@ export async function getJobByTaskId(taskId: string): Promise<Job | null> {
   return (data as Job) ?? null;
 }
 
+// Jobs submitted to RunningHub and awaiting results, for one shot.
 export async function listRunningJobsForShot(shotId: string): Promise<Job[]> {
   const { data, error } = await getSupabase()
     .from(JOBS)
@@ -187,17 +196,45 @@ export async function listRunningJobsForShot(shotId: string): Promise<Job[]> {
   return (data ?? []) as Job[];
 }
 
+// Oldest queued-but-not-submitted jobs across all shots (account-wide queue).
+export async function listPendingJobs(limit: number): Promise<Job[]> {
+  if (limit <= 0) return [];
+  const { data, error } = await getSupabase()
+    .from(JOBS)
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Job[];
+}
+
+// Active = pending or running (drives the shot's 'generating' state and UI polling).
 export async function countRunningJobs(shotId: string): Promise<number> {
   const { count, error } = await getSupabase()
     .from(JOBS)
     .select('id', { count: 'exact', head: true })
     .eq('shot_id', shotId)
-    .eq('status', 'running');
+    .in('status', ['pending', 'running']);
   if (error) throw new Error(error.message);
   return count ?? 0;
 }
 
-export async function updateJob(id: string, fields: Partial<Pick<Job, 'status' | 'error'>>): Promise<void> {
+export async function markJobRunning(id: string, taskId: string): Promise<void> {
+  await updateJob(id, { status: 'running', task_id: taskId, error: null });
+}
+
+// Distinct shots that still have pending or running jobs (for global reconcile).
+export async function listShotIdsWithActiveJobs(): Promise<string[]> {
+  const { data, error } = await getSupabase().from(JOBS).select('shot_id').in('status', ['pending', 'running']);
+  if (error) throw new Error(error.message);
+  return Array.from(new Set((data ?? []).map((r: { shot_id: string }) => r.shot_id)));
+}
+
+export async function updateJob(
+  id: string,
+  fields: Partial<Pick<Job, 'status' | 'error' | 'task_id'>>,
+): Promise<void> {
   const { error } = await getSupabase()
     .from(JOBS)
     .update({ ...fields, updated_at: new Date().toISOString() })

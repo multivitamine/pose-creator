@@ -1,15 +1,55 @@
 // Server-only: finalize generation jobs (download RunningHub result -> R2 -> DB)
 // and reconcile running jobs by polling. Shared by the webhook + reconcile routes.
-import { fetchTaskOutput } from './runninghub';
+import { fetchTaskOutput, createTask, accountStatus } from './runninghub';
 import { shotImageKey, uploadBuffer, extFromContentType } from './r2';
 import {
   clearRole,
   insertImage,
   updateJob,
+  markJobRunning,
   recomputeStatus,
   listRunningJobsForShot,
+  listPendingJobs,
+  listShotIdsWithActiveJobs,
   type Job,
 } from './db';
+
+// Max tasks RunningHub may run concurrently for the account (tier-limited).
+const MAX_CONCURRENT = Math.max(1, Number(process.env.RUNNINGHUB_MAX_CONCURRENT || 1));
+
+// Submit queued (pending) jobs to RunningHub up to the concurrency limit. Gated by
+// the account's live running count and resilient to TASK_QUEUE_MAXED. Called after
+// enqueue and whenever a job finishes, so the queue drains on its own.
+export async function dispatchPending(): Promise<void> {
+  let current = 0;
+  try {
+    const st = await accountStatus();
+    current = Number(st.currentTaskCounts) || 0;
+  } catch {
+    // If we can't read status, fall back to optimistically filling the limit.
+  }
+  let free = MAX_CONCURRENT - current;
+  if (free <= 0) return;
+
+  const pending = await listPendingJobs(free);
+  const webhookUrl = webhookUrlForTasks();
+  for (const job of pending) {
+    if (free <= 0) break;
+    if (!job.payload) {
+      await updateJob(job.id, { status: 'error', error: 'missing payload' });
+      continue;
+    }
+    try {
+      const taskId = await createTask(job.payload.workflowId, job.payload.nodeInfoList, webhookUrl);
+      await markJobRunning(job.id, taskId);
+      free--;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/TASK_QUEUE_MAXED/i.test(msg)) break; // account full — leave pending for the next pass
+      await updateJob(job.id, { status: 'error', error: msg });
+    }
+  }
+}
 
 // Public webhook URL RunningHub should call back, or undefined for local dev
 // (no public URL) so we rely on the reconcile poll instead.
@@ -51,6 +91,7 @@ export async function finalizeJob(job: Job, fileUrl: string): Promise<void> {
 
   await updateJob(job.id, { status: 'done', error: null });
   await recomputeStatus(job.shot_id);
+  await dispatchPending(); // a slot just freed — submit the next queued job
 }
 
 // Poll each running job once; finalize the done ones, flag failures.
@@ -83,6 +124,19 @@ export async function reconcileShot(shotId: string): Promise<{ finalized: number
       running++;
     }
   }
+  await dispatchPending(); // submit queued jobs into any freed slots
   await recomputeStatus(shotId);
   return { finalized, failed, running };
+}
+
+// Reconcile every shot that still has active jobs (used by the overview so
+// "generating" statuses resolve without opening each shot).
+export async function reconcileAll(): Promise<{ running: number; shots: number }> {
+  const ids = await listShotIdsWithActiveJobs();
+  let running = 0;
+  for (const id of ids) {
+    const r = await reconcileShot(id);
+    running += r.running;
+  }
+  return { running, shots: ids.length };
 }

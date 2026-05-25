@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { listShotsWithImages } from '@/lib/db';
-import { ShotGrid } from '@/components/ShotGrid';
+import { ShotsView } from '@/components/ShotsView';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +22,7 @@ export default async function Home() {
           Upload base images
         </Link>
       </div>
-      <ShotGrid shots={shots} />
+      <ShotsView shots={shots} />
     </main>
   );
 }

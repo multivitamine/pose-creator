@@ -1,8 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-
-export type CompareImage = { id: string; url: string; label: string };
+import type { CompareImage } from '@/lib/compare';
 
 export function ComparisonSlider({ images, onClose }: { images: CompareImage[]; onClose: () => void }) {
   const [leftId, setLeftId] = useState(images[0]?.id ?? '');

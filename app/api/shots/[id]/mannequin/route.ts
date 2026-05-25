@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getShotImages, getSettings, createJob, recomputeStatus } from '@/lib/db';
-import { createTask, type NodeInfo } from '@/lib/runninghub';
+import { type NodeInfo } from '@/lib/runninghub';
 import { r2ToRunningHub } from '@/lib/generate';
-import { webhookUrlForTasks } from '@/lib/jobs';
+import { dispatchPending } from '@/lib/jobs';
 import { SINGLE_DEFAULTS } from '@/lib/defaults';
 
 export const runtime = 'nodejs';
@@ -30,8 +30,12 @@ export async function POST(req: NextRequest, { params }: Params) {
       { nodeId: SINGLE_DEFAULTS.resolutionNodeId, fieldName: SINGLE_DEFAULTS.resolutionFieldName, fieldValue: settings.default_resolution.toLowerCase() },
     ];
 
-    const taskId = await createTask(SINGLE_DEFAULTS.workflowId, nodeInfoList, webhookUrlForTasks());
-    const job = await createJob({ shot_id: shotId, kind: 'mannequin', task_id: taskId });
+    const job = await createJob({
+      shot_id: shotId,
+      kind: 'mannequin',
+      payload: { workflowId: SINGLE_DEFAULTS.workflowId, nodeInfoList },
+    });
+    await dispatchPending();
     const status = await recomputeStatus(shotId);
 
     return NextResponse.json({ job, status }, { status: 202 });

@@ -2,31 +2,6 @@
 
 import { useState } from 'react';
 import type { ShotImage } from '@/lib/db';
-import { ComparisonSlider, type CompareImage } from './ComparisonSlider';
-
-function label(img: ShotImage, importedIdx?: number): string {
-  switch (img.role) {
-    case 'base':
-      return 'Base';
-    case 'mannequin':
-      return 'Mannequin';
-    case 'model_source':
-      return `Source ${img.slot}`;
-    case 'imported':
-      return `Imported ${importedIdx ?? ''}`.trim();
-    default:
-      return `Gen ${img.slot ?? ''}#${img.variation_index ?? ''}`;
-  }
-}
-
-// Order images for the comparison picker: base, mannequin, sources, generated, imported.
-function orderForCompare(images: ShotImage[]): CompareImage[] {
-  const order: Record<string, number> = { base: 0, mannequin: 1, model_source: 2, generated: 3, imported: 4 };
-  let imported = 0;
-  return [...images]
-    .sort((a, b) => (order[a.role] - order[b.role]) || (a.variation_index ?? 0) - (b.variation_index ?? 0))
-    .map((img) => ({ id: img.id, url: img.url, label: label(img, img.role === 'imported' ? ++imported : undefined) }));
-}
 
 export function ResultsGallery({
   shotId: _shotId,
@@ -37,7 +12,6 @@ export function ResultsGallery({
   images: ShotImage[];
   onChange: () => void | Promise<void>;
 }) {
-  const [comparing, setComparing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const results = images.filter((i) => i.role === 'generated' || i.role === 'imported');
@@ -98,26 +72,12 @@ export function ResultsGallery({
     </div>
   );
 
-  const canCompare = images.length >= 2;
-
   return (
     <div className="flex flex-col gap-4">
-      {(canCompare || results.length > 0) && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-neutral-500">
-            {results.length > 0
-              ? `${results.filter((i) => i.selected).length} saved of ${results.length} result${results.length === 1 ? '' : 's'}`
-              : 'Compare any two images in this shot'}
-          </p>
-          {canCompare && (
-            <button
-              onClick={() => setComparing(true)}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500"
-            >
-              Compare
-            </button>
-          )}
-        </div>
+      {results.length > 0 && (
+        <p className="text-xs text-neutral-500">
+          {results.filter((i) => i.selected).length} saved of {results.length} result{results.length === 1 ? '' : 's'}
+        </p>
       )}
 
       {(['A', 'B'] as const).map((slot) => {
@@ -143,8 +103,6 @@ export function ResultsGallery({
           </div>
         </div>
       )}
-
-      {comparing && <ComparisonSlider images={orderForCompare(images)} onClose={() => setComparing(false)} />}
     </div>
   );
 }
