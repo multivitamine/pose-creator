@@ -1,7 +1,7 @@
 // Pure helpers for the comparison picker (safe on client; type-only db import).
-import type { ShotImage } from './db';
+import type { ShotImage, ImageRole } from './db';
 
-export type CompareImage = { id: string; url: string; label: string };
+export type CompareImage = { id: string; url: string; label: string; role: ImageRole; selected: boolean };
 
 function label(img: ShotImage, importedIdx?: number): string {
   switch (img.role) {
@@ -24,5 +24,11 @@ export function orderForCompare(images: ShotImage[]): CompareImage[] {
   let imported = 0;
   return [...images]
     .sort((a, b) => order[a.role] - order[b.role] || (a.variation_index ?? 0) - (b.variation_index ?? 0))
-    .map((img) => ({ id: img.id, url: img.url, label: label(img, img.role === 'imported' ? ++imported : undefined) }));
+    .map((img) => ({
+      id: img.id,
+      url: img.url,
+      label: label(img, img.role === 'imported' ? ++imported : undefined),
+      role: img.role,
+      selected: img.selected,
+    }));
 }

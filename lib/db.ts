@@ -224,6 +224,41 @@ export async function markJobRunning(id: string, taskId: string): Promise<void> 
   await updateJob(id, { status: 'running', task_id: taskId, error: null });
 }
 
+export type ActivityJob = {
+  id: string;
+  shot_id: string;
+  kind: JobKind;
+  slot: ModelSlot | null;
+  variation_index: number | null;
+  status: JobStatus;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  shot_number: number;
+  shot_name: string | null;
+};
+
+// Recent generation activity (newest first) for the activity sidebar.
+export async function listRecentJobs(limit = 40): Promise<ActivityJob[]> {
+  const { data, error } = await getSupabase()
+    .from(JOBS)
+    .select('id, shot_id, kind, slot, variation_index, status, error, created_at, updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  const jobs = (data ?? []) as Omit<ActivityJob, 'shot_number' | 'shot_name'>[];
+  if (jobs.length === 0) return [];
+  const shotIds = Array.from(new Set(jobs.map((j) => j.shot_id)));
+  const { data: shotRows, error: shotErr } = await getSupabase().from(SHOTS).select('id, number, name').in('id', shotIds);
+  if (shotErr) throw new Error(shotErr.message);
+  const byId = new Map((shotRows ?? []).map((s: { id: string; number: number; name: string | null }) => [s.id, s]));
+  return jobs.map((j) => ({
+    ...j,
+    shot_number: byId.get(j.shot_id)?.number ?? 0,
+    shot_name: byId.get(j.shot_id)?.name ?? null,
+  }));
+}
+
 // Distinct shots that still have pending or running jobs (for global reconcile).
 export async function listShotIdsWithActiveJobs(): Promise<string[]> {
   const { data, error } = await getSupabase().from(JOBS).select('shot_id').in('status', ['pending', 'running']);

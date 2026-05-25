@@ -121,7 +121,9 @@ export function ShotDetailClient({
         </div>
       </div>
 
-      {comparing && <ComparisonSlider images={orderForCompare(shot.images)} onClose={() => setComparing(false)} />}
+      {comparing && (
+        <ComparisonSlider images={orderForCompare(shot.images)} onChange={refresh} onClose={() => setComparing(false)} />
+      )}
 
       {isRunning && (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-blue-900 bg-blue-950/30 p-3 text-sm text-blue-200">
