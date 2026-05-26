@@ -6,10 +6,12 @@ import { parseShotFromFilename } from '@/lib/format';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// List all shots (with their images) for the overview.
-export async function GET() {
+// List shots (with their images) for the overview. Completed shots are excluded
+// by default — pass ?done=1 to include them.
+export async function GET(req: NextRequest) {
   try {
-    const shots = await listShotsWithImages();
+    const includeCompleted = req.nextUrl.searchParams.get('done') === '1';
+    const shots = await listShotsWithImages({ includeCompleted });
     return NextResponse.json({ shots });
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });

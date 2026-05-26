@@ -1,11 +1,16 @@
 import Link from 'next/link';
-import { listShotsWithImages } from '@/lib/db';
+import { countCompletedShots, listShotsWithImages } from '@/lib/db';
 import { ShotsView } from '@/components/ShotsView';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Home() {
-  const shots = await listShotsWithImages();
+export default async function Home({ searchParams }: { searchParams: Promise<{ done?: string }> }) {
+  const { done } = await searchParams;
+  const includeCompleted = done === '1';
+  const [shots, completedCount] = await Promise.all([
+    listShotsWithImages({ includeCompleted }),
+    includeCompleted ? Promise.resolve(0) : countCompletedShots(),
+  ]);
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
@@ -22,7 +27,7 @@ export default async function Home() {
           Upload base images
         </Link>
       </div>
-      <ShotsView shots={shots} />
+      <ShotsView shots={shots} includeCompleted={includeCompleted} hiddenCompletedCount={completedCount} />
     </main>
   );
 }

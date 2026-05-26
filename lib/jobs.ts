@@ -3,11 +3,11 @@
 import { fetchTaskOutput, createTask, accountStatus } from './runninghub';
 import { shotImageKey, uploadBuffer, extFromContentType } from './r2';
 import {
+  claimJobForFinalize,
   clearRole,
   insertImage,
   updateJob,
   markJobRunning,
-  claimJobForFinalize,
   recomputeStatus,
   listRunningJobsForShot,
   listPendingJobs,

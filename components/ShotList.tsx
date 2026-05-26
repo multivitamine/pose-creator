@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ShotWithImages } from '@/lib/db';
 import { shotLabel } from '@/lib/format';
 import { StatusBadge } from './StatusBadge';
+import { DoneButton } from './DoneButton';
 
 export function ShotList({ shots }: { shots: ShotWithImages[] }) {
   return (
@@ -34,6 +35,7 @@ export function ShotList({ shots }: { shots: ShotWithImages[] }) {
               {saved > 0 && <span className="text-green-400"> · {saved} saved</span>}
             </span>
             <StatusBadge status={shot.status} />
+            <DoneButton shotId={shot.id} status={shot.status} />
           </Link>
         );
       })}

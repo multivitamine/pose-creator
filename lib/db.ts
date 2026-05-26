@@ -314,14 +314,19 @@ export async function nextVariationIndex(shotId: string, slot: ModelSlot): Promi
 
 // ---- shots ----
 
-export async function listShots(): Promise<Shot[]> {
-  const { data, error } = await getSupabase().from(SHOTS).select('*').order('number', { ascending: true });
+export async function listShots(opts: { includeCompleted?: boolean } = {}): Promise<Shot[]> {
+  let q = getSupabase().from(SHOTS).select('*').order('number', { ascending: true });
+  if (!opts.includeCompleted) q = q.neq('status', 'completed');
+  const { data, error } = await q;
   if (error) throw new Error(error.message);
   return (data ?? []) as Shot[];
 }
 
-export async function listShotsWithImages(): Promise<ShotWithImages[]> {
-  const shots = await listShots();
+// Loads shots and their images in two queries. Completed shots are excluded by
+// default — their image rows can be heavy and they rarely need to be in view.
+// Pass { includeCompleted: true } to load them.
+export async function listShotsWithImages(opts: { includeCompleted?: boolean } = {}): Promise<ShotWithImages[]> {
+  const shots = await listShots(opts);
   if (shots.length === 0) return [];
   const { data, error } = await getSupabase()
     .from(IMAGES)
@@ -333,6 +338,15 @@ export async function listShotsWithImages(): Promise<ShotWithImages[]> {
     (byShot.get(img.shot_id) ?? byShot.set(img.shot_id, []).get(img.shot_id)!).push(img);
   }
   return shots.map((s) => ({ ...s, images: byShot.get(s.id) ?? [] }));
+}
+
+export async function countCompletedShots(): Promise<number> {
+  const { count, error } = await getSupabase()
+    .from(SHOTS)
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'completed');
+  if (error) throw new Error(error.message);
+  return count ?? 0;
 }
 
 export async function getShot(id: string): Promise<Shot | null> {

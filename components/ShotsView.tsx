@@ -10,7 +10,15 @@ import { STATUS_ORDER, statusLabel } from './StatusBadge';
 type View = 'grid' | 'list';
 type Filter = ShotStatus | 'all';
 
-export function ShotsView({ shots }: { shots: ShotWithImages[] }) {
+export function ShotsView({
+  shots,
+  includeCompleted = false,
+  hiddenCompletedCount = 0,
+}: {
+  shots: ShotWithImages[];
+  includeCompleted?: boolean;
+  hiddenCompletedCount?: number;
+}) {
   const router = useRouter();
   const [view, setView] = useState<View>('grid');
   const [filter, setFilter] = useState<Filter>('all');
@@ -70,12 +78,28 @@ export function ShotsView({ shots }: { shots: ShotWithImages[] }) {
     </button>
   );
 
+  const toggleDone = () => router.push(includeCompleted ? '/' : '/?done=1');
+
   return (
     <>
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="flex flex-wrap gap-1.5">
           {chip('all', 'All', shots.length)}
           {STATUS_ORDER.filter((s) => counts.has(s)).map((s) => chip(s, statusLabel(s), counts.get(s) ?? 0))}
+          <button
+            onClick={toggleDone}
+            title={includeCompleted ? 'Hide completed shots to speed up the overview' : 'Load completed shots into the overview'}
+            className={`rounded-full px-3 py-1 text-xs transition ${
+              includeCompleted
+                ? 'bg-green-900/60 text-green-200 hover:bg-green-900'
+                : 'bg-neutral-900/60 text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            {includeCompleted ? 'Hide done' : 'Show done'}
+            {!includeCompleted && hiddenCompletedCount > 0 && (
+              <span className="ml-1 text-neutral-500">{hiddenCompletedCount}</span>
+            )}
+          </button>
         </div>
         <div className="inline-flex shrink-0 gap-1 rounded-md border border-neutral-800 bg-neutral-900/50 p-1 text-sm">
           {(['grid', 'list'] as View[]).map((v) => (
