@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ShotWithImages, Source } from '@/lib/db';
 import { shotLabel } from '@/lib/format';
@@ -24,6 +24,7 @@ export function ShotDetailClient({
   const [runningJobs, setRunningJobs] = useState(initialRunningJobs);
   const [sources, setSources] = useState<Source[]>([]);
   const [mannBusy, setMannBusy] = useState(false);
+  const mannInputRef = useRef<HTMLInputElement>(null);
   const [reconciling, setReconciling] = useState(false);
   const [comparing, setComparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +84,24 @@ export function ShotDetailClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
+      if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+      await refresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMannBusy(false);
+    }
+  };
+
+  // Upload an existing mannequin image instead of generating one (replaces any existing).
+  const uploadMannequin = async (file: File) => {
+    setMannBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      fd.append('role', 'mannequin');
+      const r = await fetch(`/api/shots/${shot.id}/images`, { method: 'POST', body: fd });
       if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
       await refresh();
     } catch (e: unknown) {
@@ -164,13 +183,33 @@ export function ShotDetailClient({
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-neutral-400">Mannequin</span>
-                <button
-                  onClick={generateMannequin}
-                  disabled={mannBusy || isRunning || !base}
-                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
-                >
-                  {mannBusy ? 'Queuing…' : mannequin ? 'Regenerate' : 'Generate mannequin'}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => mannInputRef.current?.click()}
+                    disabled={mannBusy || isRunning}
+                    className="text-xs text-neutral-500 hover:text-neutral-200 disabled:opacity-50"
+                  >
+                    upload
+                  </button>
+                  <button
+                    onClick={generateMannequin}
+                    disabled={mannBusy || isRunning || !base}
+                    className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                  >
+                    {mannBusy ? 'Working…' : mannequin ? 'Regenerate' : 'Generate mannequin'}
+                  </button>
+                </div>
+                <input
+                  ref={mannInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadMannequin(f);
+                    if (mannInputRef.current) mannInputRef.current.value = '';
+                  }}
+                />
               </div>
               <div className="flex aspect-[4/5] items-center justify-center overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
                 {mannequin ? (

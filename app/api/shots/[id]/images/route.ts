@@ -7,10 +7,11 @@ export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
 
-// Add an image to a shot. Three forms:
+// Add an image to a shot. Four forms:
 //  - model source from an uploaded file (file + role=model_source + slot)
 //  - model source referencing a library preset (sourceId + role=model_source + slot)
 //  - imported result from an uploaded file (file + role=imported)
+//  - mannequin from an uploaded file (file + role=mannequin) — upload instead of generating
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const { id: shotId } = await params;
@@ -19,8 +20,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     const sourceId = form.get('sourceId') as string | null;
 
     const role = String(form.get('role') || '') as ImageRole;
-    if (!['model_source', 'imported'].includes(role)) {
-      return NextResponse.json({ error: 'role must be model_source or imported' }, { status: 400 });
+    if (!['model_source', 'imported', 'mannequin'].includes(role)) {
+      return NextResponse.json({ error: 'role must be model_source, imported or mannequin' }, { status: 400 });
     }
 
     let slot: ModelSlot | null = null;
@@ -53,6 +54,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'file or sourceId is required' }, { status: 400 });
     }
+    // One mannequin per shot: replace the existing one (matches generate/regenerate).
+    if (role === 'mannequin') await clearRole(shotId, 'mannequin');
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentType = file.type || 'image/png';
     const key = shotImageKey(shotId, role, extFromContentType(contentType));
