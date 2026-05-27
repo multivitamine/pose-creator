@@ -22,6 +22,7 @@ export function ShotsView({
   const router = useRouter();
   const [view, setView] = useState<View>('grid');
   const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     const v = localStorage.getItem('shotsView');
@@ -62,7 +63,19 @@ export function ShotsView({
     return m;
   }, [shots]);
 
-  const shown = filter === 'all' ? shots : shots.filter((s) => s.status === filter);
+  // Search by shot number (substring) or name (case-insensitive), on top of the
+  // status filter. Empty query matches everything.
+  const q = query.trim();
+  const matchesQuery = (s: ShotWithImages) =>
+    !q || String(s.number).includes(q) || (s.name?.toLowerCase().includes(q.toLowerCase()) ?? false);
+  const shown = shots.filter((s) => (filter === 'all' || s.status === filter) && matchesQuery(s));
+
+  // Enter jumps to the shot: an exact number match wins, else a lone result.
+  const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || !q) return;
+    const target = shots.find((s) => String(s.number) === q) ?? (shown.length === 1 ? shown[0] : undefined);
+    if (target) router.push(`/shots/${target.id}`);
+  };
 
   if (shots.length === 0) return <ShotGrid shots={shots} />;
 
@@ -101,8 +114,30 @@ export function ShotsView({
             )}
           </button>
         </div>
-        <div className="inline-flex shrink-0 gap-1 rounded-md border border-neutral-800 bg-neutral-900/50 p-1 text-sm">
-          {(['grid', 'list'] as View[]).map((v) => (
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="relative">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKeyDown}
+              placeholder="Search #"
+              aria-label="Search shots by number"
+              className="w-32 rounded-md border border-neutral-800 bg-neutral-900/50 px-3 py-1.5 text-sm text-neutral-200 placeholder-neutral-500 outline-none transition focus:border-neutral-600"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-1 text-neutral-500 hover:text-neutral-200"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <div className="inline-flex gap-1 rounded-md border border-neutral-800 bg-neutral-900/50 p-1 text-sm">
+            {(['grid', 'list'] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => choose(v)}
@@ -112,12 +147,15 @@ export function ShotsView({
             >
               {v}
             </button>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
       {shown.length === 0 ? (
-        <p className="py-12 text-center text-sm text-neutral-500">No shots with this status.</p>
+        <p className="py-12 text-center text-sm text-neutral-500">
+          {q ? `No shots match “${q}”.` : 'No shots with this status.'}
+        </p>
       ) : view === 'grid' ? (
         <ShotGrid shots={shown} />
       ) : (
